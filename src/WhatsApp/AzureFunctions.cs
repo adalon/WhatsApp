@@ -1,9 +1,14 @@
-﻿using System.Text;
+﻿using System.Security.Claims;
+using System.Text;
 using Azure.Data.Tables;
 using Azure.Storage.Queues;
+using Google.Apis.Auth.AspNetCore3;
+using Google.Apis.Auth.OAuth2.Flows;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Azure.Functions.Worker;
+using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -23,6 +28,8 @@ public class AzureFunctions(
     IWhatsAppClient whatsapp,
     IWhatsAppHandler handler,
     IOptions<MetaOptions> options,
+    IOptions<GoogleOptions> googleOptions,
+    UserService userService,
     ILogger<AzureFunctions> logger)
 {
     [Function("whatsapp_message")]
@@ -117,5 +124,43 @@ public class AzureFunctions(
         }
 
         return new BadRequestObjectResult("Received verification token doesn't match the configured one.");
+    }
+
+    [Function("google_oauth_callback")]
+    public async Task<IActionResult> Calllback([HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "api/googlecallback")] HttpRequest req)
+    {
+        var code = req.Query["code"];
+        var user = req.Query["state"];
+
+        if (string.IsNullOrEmpty(code) || string.IsNullOrEmpty(user))
+        {
+            return new BadRequestObjectResult("Authentication failed. Invalid code");
+        }
+
+        var flow = new GoogleAuthorizationCodeFlow(new GoogleAuthorizationCodeFlow.Initializer
+        {
+            ClientSecrets = new Google.Apis.Auth.OAuth2.ClientSecrets()
+            {
+                ClientId = googleOptions.Value.ClientId,
+                ClientSecret = googleOptions.Value.ClientSecret
+            }
+        });
+
+        var result = await flow.ExchangeCodeForTokenAsync(
+            "user", 
+            code,
+            redirectUri: googleOptions.Value.Endpoint + googleOptions.Value.CallbackUri, 
+            CancellationToken.None);
+
+        if (string.IsNullOrEmpty(result?.AccessToken))
+        {
+            return new BadRequestObjectResult("Authentication failed. Invalid token");
+        }
+
+        await userService.UpdateTokenAsync(user, result.AccessToken, result.RefreshToken);
+
+        await whatsapp.SendAsync(options.Value.Numbers.Keys.ToArray()[0], user!, "Auth Succeeded!");
+
+        return new OkResult();
     }
 }

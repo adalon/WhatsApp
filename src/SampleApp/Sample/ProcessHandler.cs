@@ -3,7 +3,7 @@ using System.Text.Json;
 using Devlooped.WhatsApp;
 using Microsoft.Extensions.Logging;
 
-class ProcessHandler(ILogger<Program> logger, JsonSerializerOptions options) : IWhatsAppHandler
+class ProcessHandler(ILogger<Program> logger, JsonSerializerOptions options, UserService userService) : IWhatsAppHandler
 {
     public async IAsyncEnumerable<Response> HandleAsync(IEnumerable<IMessage> messages, [EnumeratorCancellation] CancellationToken cancellation = default)
     {
@@ -44,12 +44,28 @@ class ProcessHandler(ILogger<Program> logger, JsonSerializerOptions options) : I
         {
             yield return content.React("🧠");
 
-            // simulate some hard work at hand, like doing some LLM-stuff :)
-            //await Task.Delay(2000);
-            yield return content.Reply(
-                $"☑️ Got your {content.Content.Type}:\r\n{JsonSerializer.Serialize(content, options)}",
-                new Button("btn_good", "👍"),
-                new Button("btn_bad", "👎"));
+            if (content.Content is TextContent textContent && string.Equals(textContent.Text, "calendar", StringComparison.OrdinalIgnoreCase))
+            {
+                var token = await userService.GetAccessTokenAsync(message.UserNumber);
+
+                if (string.IsNullOrEmpty(token))
+                {
+                    yield return content.Reply(await userService.GenerateAuthUrlAsync(message.UserNumber));
+                }
+                else
+                {
+                    // query calendar data with the token
+                }
+            }
+            else
+            {
+                // simulate some hard work at hand, like doing some LLM-stuff :)
+                //await Task.Delay(2000);
+                yield return content.Reply(
+                    $"☑️ Got your {content.Content.Type}:\r\n{JsonSerializer.Serialize(content, options)}",
+                    new Button("btn_good", "👍"),
+                    new Button("btn_bad", "👎"));
+            }
         }
         else if (message is UnsupportedMessage unsupported)
         {

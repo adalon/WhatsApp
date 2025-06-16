@@ -331,6 +331,12 @@ public static class WhatsAppServiceCollectionExtensions
                 }));
         }
 
+        services.AddOptions<GoogleOptions>()
+            .BindConfiguration("Authentication:Google")
+            .ValidateDataAnnotations();
+
+        services.AddSingleton<UserService>();
+
         services.AddOptions<MetaOptions>()
             .BindConfiguration("Meta")
             .ValidateDataAnnotations();
